@@ -156,6 +156,24 @@ def _extract_reviews_summary(raw_reviews, max_reviews: int = 2, max_chars: int =
     return " | ".join(snippets)
 
 
+def _tags_to_text(raw_tags) -> str:
+    if isinstance(raw_tags, list):
+        values = raw_tags
+    elif isinstance(raw_tags, str):
+        values = [t.strip() for t in raw_tags.split(",")]
+    elif raw_tags is None:
+        values = []
+    else:
+        values = [raw_tags]
+
+    cleaned = []
+    for value in values:
+        text = clean_text(value)
+        if text:
+            cleaned.append(text)
+    return ", ".join(cleaned)
+
+
 def parse_date(text: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     """Devuelve (fecha_inicio_iso, fecha_fin_iso)"""
     if not text:
@@ -225,6 +243,7 @@ def build_embedding_text(row: dict) -> str:
         if not isinstance(tags, list):
             tags = []
 
+        tags_text = _tags_to_text(tags)
         place_parts = [
             f"Lugar: {row.get('titulo', '')}",
             f"Nombre del lugar: {row.get('titulo', '')}",
@@ -237,11 +256,12 @@ def build_embedding_text(row: dict) -> str:
             f"Cantidad de reseñas: {ratings_total if ratings_total is not None else ''}",
             f"Reseñas destacadas: {row.get('resumen_reviews', '')}",
             f"Precio: {row.get('precio', '')}",
-            f"Tags: {', '.join(tags)}",
+            f"Tags: {tags_text}",
         ]
         return " | ".join(p for p in place_parts if p.split(": ", 1)[1])
 
     label = "Evento"
+    tags_text = _tags_to_text(row.get("tags", []))
     parts = [
         f"{label}: {row.get('titulo', '')}",
         f"Tipo: {row.get('tipo', '')}",
@@ -249,7 +269,7 @@ def build_embedding_text(row: dict) -> str:
         f"Ciudad: Lima, Perú",
         f"Descripción: {row.get('descripcion', '')}",
         f"Precio: {row.get('precio', '')}",
-        f"Tags: {', '.join(row.get('tags', []))}",
+        f"Tags: {tags_text}",
     ]
     return " | ".join(p for p in parts if p.split(": ", 1)[1])
 

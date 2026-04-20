@@ -1,0 +1,138 @@
+name: 🎭 Pipeline Cultural Lima — Scraping Semanal
+
+on:
+  schedule:
+    - cron: "0 7 * * 0"   # 07:00 UTC = 02:00 AM Lima (UTC-5)
+
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "Fuentes a scrapear (bnp mali joinnus)"
+        required: false
+        default: "bnp mali joinnus"
+      skip_embeddings:
+        description: "Omitir embeddings (true/false)"
+        required: false
+        default: "false"
+      enrich_deepseek:
+        description: "Enriquecer texto_embedding con DeepSeek (true/false)"
+        required: false
+        default: "false"
+      write_mongo_web:
+        description: "Publicar a MongoDB web (true/false)"
+        required: false
+        default: "false"
+      write_mongo_reco:
+        description: "Publicar a MongoDB reco (true/false)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cultural-pipeline-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  scrape-and-embed:
+    name: Scraping + Normalización + Embeddings
+    runs-on: self-hosted
+    timeout-minutes: 60
+
+    defaults:
+      run:
+        working-directory: cultural_pipeline
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: cultural_pipeline/requirements.txt
+
+      - name: Instalar dependencias
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Instalar Chrome (para MALI)
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Ejecutar pipeline
+        run: |
+          python pipeline/pipeline.py \
+            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sources && format('--sources {0}', github.event.inputs.sources) || '' }} \
+            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip_embeddings == 'true' && '--skip-embeddings' || '' }} \
+            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enrich_deepseek == 'true' && '--enrich-deepseek' || '' }} \
+            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.write_mongo_web == 'true' && '--write-mongo-web' || '' }} \
+            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.write_mongo_reco == 'true' && '--write-mongo-reco' || '' }}
+        env:
+          # Mongo
+          MONGO_URI_WEB: ${{ secrets.MONGO_URI_WEB }}
+          MONGO_URI_RECO: ${{ secrets.MONGO_URI_RECO }}
+          MONGO_DB_WEB: ${{ vars.MONGO_DB_WEB }}
+          MONGO_COLL_WEB: ${{ vars.MONGO_COLL_WEB }}
+          MONGO_DB_RECO: ${{ vars.MONGO_DB_RECO }}
+          MONGO_COLL_RECO: ${{ vars.MONGO_COLL_RECO }}
+
+          # Optional keys
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+
+          # Guardrails: avoid dimension drift in scheduled runs
+          ALLOW_OPENAI_FALLBACK: "false"
+
+          PYTHONPATH: ${{ github.workspace }}/cultural_pipeline
+
+      - name: Validar output estandar
+        run: |
+          python scripts/validar_output.py --expected-sources ${EXPECTED_SOURCES} --emit-json
+        env:
+          EXPECTED_SOURCES: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sources || 'bnp mali joinnus places' }}
+
+      - name: Validar embeddings
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.skip_embeddings != 'true' }}
+        run: |
+          python scripts/validate_embeddings.py --run-id latest
+
+      - name: Upload outputs como artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cultural-data-${{ github.run_id }}
+          path: |
+            cultural_pipeline/output/eventos_estandar.csv
+            cultural_pipeline/output/eventos_estandar.json
+            cultural_pipeline/embeddings/vectors_*.npy
+            cultural_pipeline/embeddings/metadata_*.json
+            cultural_pipeline/embeddings/contract_*.json
+            cultural_pipeline/logs/stats_*.json
+            cultural_pipeline/logs/output_quality_*.json
+            cultural_pipeline/logs/run_*.log
+          retention-days: 30
+
+      - name: Commit outputs al repo (opcional)
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/eventos_estandar.csv output/eventos_estandar.json || true
+          git add embeddings/metadata_latest.json embeddings/contract_latest.json || true
+          git diff --cached --quiet || git commit -m "🤖 Weekly scrape $(date -u +'%Y-%m-%d')"
+          git push || echo "Nada que pushear"
+
+      - name: Notificar en caso de fallo
+        if: failure()
+        run: |
+          echo "❌ Pipeline falló — revisa los logs en Actions"

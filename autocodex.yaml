@@ -1,0 +1,144 @@
+version: v1
+profile: max_capability
+mode: yolo
+
+codex:
+  cli_path: codex
+  model: gpt-5.4
+  reasoning_effort: xhigh
+  collaboration_enabled: true
+  collaboration_mode: auto
+  preset: default
+  timeout_seconds: 900
+  extra_args: []
+  # approval/sandbox are ignored when mode: yolo (yolo uses --yolo)
+  approval_policy: on-request
+  sandbox_mode: workspace-write
+  json_output: true
+  output_last_message: true
+  prompt_stdin: true
+
+paths:
+  state_dir: .autocodex
+  memory_dir: memory
+  logs_dir: logs
+  artifacts_dir: artifacts
+  runs_dir: runs
+
+skills:
+  paths:
+    - skills
+  allowlist: []
+  denylist: []
+
+plugins:
+  enabled: true
+  paths:
+    - plugins
+    - /usr/local/share/autocodex/plugins
+    - /usr/share/autocodex/plugins
+    - /opt/homebrew/share/autocodex/plugins
+  timeout_seconds: 60
+
+hub:
+  enabled: true
+  workspaces: []
+
+api:
+  enabled: true
+  host: 127.0.0.1
+  port: 7788
+  base_path: /
+
+ui:
+  enabled: false
+  origin: http://localhost:5173
+
+beads:
+  enabled: true
+  auto_create: true
+  auto_update: true
+
+cleanup:
+  retention_days: 14
+
+logging:
+  level: info
+  format: json
+
+loop:
+  mode: bounded
+  max_iterations: 50
+  phases:
+    - ideate
+    - plan
+    - implement
+    - review
+    - test
+  phase_idle_seconds:
+    review: 1200
+  stop_conditions:
+    max_duration_seconds: 0
+    max_idle_seconds: 600
+    max_consecutive_failures: 0
+    max_heartbeat_seconds: 180
+  prompt_guardrails:
+    review_max_bytes: 200000
+  feedback:
+    mode: on
+    sources:
+      - memory
+      - events
+      - artifacts
+    memory_mode: summary_ref
+    snapshot_mode: summary_ref
+    summary_max_lines: 20
+    max_artifacts: 20
+    max_events: 200
+    max_bytes: 0
+    memory_glob: "*.md"
+    snapshot_path: ""
+
+autonomy:
+  enabled: true
+  require_actions: true
+  require_next: true
+  require_bd: true
+  fail_on_schema_error: true
+  allow_fallback_tasks: true
+  keep_invalid_payloads: true
+  spec_template: docs/specs/TEMPLATE.md
+  plan_template: docs/plans/TEMPLATE.md
+  tasks_schema: docs/contracts/autonomy-tasks.schema.json
+  actions_schema: docs/contracts/autonomy-actions.schema.json
+  tasks_output_template: docs/plans/%s-tasks.json
+  # Harness v2 multi-agent default profile for this repo.
+  coordinator:
+    enabled: true
+    max_parallel: 4 # set higher for stronger hosts; 0 = unlimited
+    strategy: bead
+    fail_fast: false
+    selection_mode: run_scoped
+    allow_all_ready_fallback: false
+    failure_summary_limit: 5
+  gate:
+    max_fix_attempts_scope: global
+    fix_attempts_store: artifacts/autonomy/fix_attempts.json
+  harness:
+    enabled: true
+    impact_mode: normal
+    strict_tracking_mode: bd_strict
+    require_council_on_high_impact: true
+    require_independent_critic: true
+    require_gate_runner: true
+    preflight_command: autocodex harness preflight --strict
+    role_pack_path: .codex
+    eval:
+      enabled: true
+      min_scenarios: 6
+      min_pass_rate: 1.0
+      max_soft_failures: 0
+  stop_conditions:
+    max_fix_attempts: 3
+    max_beads: 0
+    stop_on_gate_failure: true

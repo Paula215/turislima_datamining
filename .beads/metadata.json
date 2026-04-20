@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "turislima_datamining",
+  "project_id": "030bed3f-9b94-4e5d-b016-5afb0a76c3e9"
+}

@@ -205,3 +205,34 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# -----------------------------
+# Project-specific (turislima)
+# -----------------------------
+
+# Local secrets
+cultural_pipeline/.env
+
+# Runtime outputs (regenerated every run)
+cultural_pipeline/logs/*.log
+cultural_pipeline/logs/*.json
+cultural_pipeline/output/eventos_estandar.csv
+cultural_pipeline/output/eventos_estandar.json
+cultural_pipeline/output/raw/
+cultural_pipeline/output/snapshots/
+
+# Embedding artifacts (generated)
+cultural_pipeline/embeddings/vectors_*.npy
+cultural_pipeline/embeddings/metadata_*.json
+cultural_pipeline/embeddings/contract_*.json
+cultural_pipeline/embeddings/quality_*.json
+cultural_pipeline/embeddings/faiss_*.index
+cultural_pipeline/embeddings/*_latest.*
+
+# Local static payload generated from private/source datasets
+cultural_pipeline/input/google_places_payload.json
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key

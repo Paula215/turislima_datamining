@@ -49,12 +49,12 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -64,7 +64,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Instalar Chrome (para MALI)
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
         with:
           chrome-version: stable
 
@@ -106,7 +106,7 @@ jobs:
           python scripts/validate_embeddings.py --run-id latest
 
       - name: Upload outputs como artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cultural-data-${{ github.run_id }}
           path: |

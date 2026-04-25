@@ -108,6 +108,14 @@ Criterios de aceptacion:
 - El script invoca `validar_output.py` al finalizar.
 - El script soporta activar/desactivar embeddings y Mongo por flags.
 
+### HU-13 - Contrato canónico estable para recomendación
+Como backend de recomendación, quiero identificadores estables por entidad para no invalidar historial de interacciones entre corridas.
+
+Criterios de aceptacion:
+- El output canónico incluye `poi_id` y `poi_id_version`.
+- El output canónico incluye `categoria_normalizada`, `geo_hash` y `fecha_run`.
+- `poi_id` es determinístico para entidades equivalentes en corridas consecutivas con mismo input.
+
 ## Casos de Prueba
 
 Formato:
@@ -312,6 +320,31 @@ Pasos:
 Resultado esperado:
 - El script ejecuta pipeline y valida output al final.
 
+### CP-20 (HU-13, F) - Campos DM-2 presentes y consistentes
+Precondiciones:
+- Corrida completa reciente disponible
+
+Pasos:
+1. Revisar `output/eventos_estandar.csv`.
+2. Verificar columnas: `poi_id`, `poi_id_version`, `categoria_normalizada`, `geo_hash`, `fecha_run`.
+
+Resultado esperado:
+- `poi_id` sin nulos y único por fila.
+- `categoria_normalizada` y `fecha_run` sin nulos.
+- `geo_hash` presente para entidades con lat/lng.
+
+### CP-21 (HU-13, F) - Estabilidad determinística de poi_id
+Precondiciones:
+- CSVs raw del mismo run disponibles en `output/raw/`.
+
+Pasos:
+1. Cargar raw `bnp/mali/joinnus/places` de un mismo `run_id`.
+2. Ejecutar `normalize_all` dos veces sobre el mismo input.
+3. Comparar `poi_id` por `entity_id` entre ambas salidas.
+
+Resultado esperado:
+- `drift_count = 0` para `poi_id`.
+
 ## Matriz de trazabilidad (resumen)
 - HU-01: CP-01, CP-02, CP-03
 - HU-02: CP-04, CP-05
@@ -325,3 +358,4 @@ Resultado esperado:
 - HU-10: CP-17
 - HU-11: CP-18
 - HU-12: CP-19
+- HU-13: CP-20, CP-21

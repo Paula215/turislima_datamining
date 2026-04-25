@@ -25,10 +25,13 @@ Esto permite que:
 Campos comunes del catalogo:
 
 - `entity_id`
+- `poi_id`
+- `poi_id_version`
 - `entity_type`
 - `titulo`
 - `descripcion`
 - `tipo`
+- `categoria_normalizada`
 - `fecha_inicio`
 - `fecha_fin`
 - `hora_inicio`
@@ -39,6 +42,8 @@ Campos comunes del catalogo:
 - `url_origen`
 - `fuente`
 - `ciudad`
+- `geo_hash`
+- `fecha_run`
 - `tags`
 - `texto_embedding`
 - `scraped_at`
@@ -159,6 +164,14 @@ Si Google Places debe verse junto con eventos en la misma experiencia, no convie
 	La inactivacion de documentos no vistos se omite en runs parciales.
 	Justificacion: evita desactivar entidades sanas cuando una fuente no fue parte de la corrida.
 
+6. Identidad estable de POI para backend/reco (DM-2 Fase 1):
+	Se introdujo `poi_id` deterministico con `poi_id_version=v1` para evitar invalidar historiales de interaccion entre corridas.
+	Justificacion: el backend depende de claves estables para conservar perfilado y feedback por entidad.
+
+7. Enriquecimiento del contrato canónico para consumo operacional:
+	Se agregaron `categoria_normalizada`, `geo_hash` (si hay coordenadas) y `fecha_run`.
+	Justificacion: habilita trazabilidad por corrida y señales geográficas consistentes para ranking híbrido.
+
 ## Estado resumido (abril 2026)
 
 - M0 Seguridad: completado a nivel de estrategia y plantillas de entorno.
@@ -168,3 +181,16 @@ Si Google Places debe verse junto con eventos en la misma experiencia, no convie
 - M4 Google Places: completado con payload estatico unificado y normalizacion integrada.
 - M5 Scheduler/CI: completado (workflow semanal + validacion automatica de output canónico en CI).
 - M6 Observabilidad/calidad: en progreso (stats por fuente/tipo + control de nulos/duplicados/caidas de cobertura por corrida).
+
+## Avance Fase 1 DM-2 (abril 2026)
+
+- Implementado en `normalizer.py`:
+	- `poi_id` estable + `poi_id_version=v1`
+	- `categoria_normalizada`
+	- `geo_hash` para entidades con coordenadas
+	- `fecha_run` (UTC)
+- Evidencia de validación:
+	- Corrida completa: `run_id=20260425_052346`
+	- Calidad canónica: `logs/output_quality_20260425_052346.json` (`PASS`)
+	- Calidad embeddings: `embeddings/quality_20260425_052346.json` (`PASS`)
+	- Estabilidad determinística (mismo input, 2 normalizaciones): `logs/deterministic_stability_latest.json` con `drift_count=0`

@@ -2,6 +2,18 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
+## Specialized Agents
+
+The repository now includes specialized agents under `.github/agents/`:
+
+- `dm-backend-coordinator`: enforce dependency order and phase gates.
+- `dm2-contract-implementer`: implement DM-2 canonical stability changes.
+- `dm-quality-gate`: run and enforce validation checks before advancing.
+- `dm-docs-updater`: update roadmap and test documentation with evidence.
+
+Execution order for implementation remains:
+`DM-2 -> DM-3 -> DM-4 -> BE-3 -> BE-1/BE-2 -> BE-4 -> BE-5 -> BE-6 -> BE-7 -> CI`.
+
 ## Quick Reference
 
 ```bash

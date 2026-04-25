@@ -6,6 +6,8 @@ EventoEstandar — el formato canónico para la app de recomendaciones.
 
 Esquema de salida:
     entity_id       : str  — hash único (source + url)
+    poi_id          : str  — id estable entre runs para consumo backend/reco
+    poi_id_version  : str  — versión del algoritmo de poi_id
     entity_type     : str  — event | place
     event_id        : str  — alias de compatibilidad
     titulo          : str
@@ -22,6 +24,9 @@ Esquema de salida:
     url_evento      : str  — alias de compatibilidad
     fuente          : str  — "bnp" | "mali" | "joinnus"
     ciudad          : str  — "Lima"
+    categoria_normalizada : str — alias canónico de tipo
+    geo_hash        : str | None — hash geográfico estable (si hay lat/lng)
+    fecha_run       : date (ISO 8601) — fecha UTC del run de normalización
     tags            : list[str]
     texto_embedding : str  — concatenación para generar embeddings
     scraped_at      : datetime (ISO 8601)
@@ -33,6 +38,9 @@ import ast
 import pandas as pd
 from datetime import datetime, date
 from typing import Optional
+
+
+POI_ID_VERSION = "v1"
 
 # ---------------------------------------------------------------------------
 # Mapeo de categorías a vocabulario común
@@ -172,6 +180,76 @@ def _tags_to_text(raw_tags) -> str:
         if text:
             cleaned.append(text)
     return ", ".join(cleaned)
+
+
+def _normalize_token(value) -> str:
+    text = clean_text(value)
+    if not text:
+        return ""
+    return text.lower()
+
+
+def _safe_float(value) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return None
+    try:
+        return float(text)
+    except Exception:
+        return None
+
+
+def _build_geo_hash(lat, lng) -> Optional[str]:
+    lat_f = _safe_float(lat)
+    lng_f = _safe_float(lng)
+    if lat_f is None or lng_f is None:
+        return None
+    return f"{lat_f:.5f}:{lng_f:.5f}"
+
+
+def _stable_hash(payload: str) -> str:
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _compute_poi_id(rec: dict) -> str:
+    entity_type = _normalize_token(rec.get("entity_type")) or "event"
+    fuente = _normalize_token(rec.get("fuente"))
+    categoria = _normalize_token(rec.get("categoria_normalizada"))
+
+    if entity_type == "place":
+        place_id = _normalize_token(rec.get("place_id"))
+        source_url = _normalize_token(rec.get("url_origen") or rec.get("url_evento"))
+        lat_lng = _build_geo_hash(rec.get("lat"), rec.get("lng"))
+        title = _normalize_token(rec.get("titulo"))
+
+        stable_key = place_id or source_url or lat_lng or title
+        payload = f"{POI_ID_VERSION}|place|{fuente}|{stable_key}|{categoria}"
+        return f"poi_{_stable_hash(payload)}"
+
+    source_url = _normalize_token(rec.get("url_evento") or rec.get("url_origen"))
+    date_start = _normalize_token(rec.get("fecha_inicio"))
+    time_start = _normalize_token(rec.get("hora_inicio"))
+    place = _normalize_token(rec.get("lugar"))
+    title = _normalize_token(rec.get("titulo"))
+
+    payload = (
+        f"{POI_ID_VERSION}|event|{fuente}|{source_url}|"
+        f"{date_start}|{time_start}|{place}|{title}|{categoria}"
+    )
+    return f"poi_{_stable_hash(payload)}"
+
+
+def _finalize_record(rec: dict) -> dict:
+    rec["categoria_normalizada"] = rec.get("tipo") or "cultural"
+    rec["geo_hash"] = _build_geo_hash(rec.get("lat"), rec.get("lng"))
+    rec["fecha_run"] = datetime.utcnow().date().isoformat()
+    rec["poi_id_version"] = POI_ID_VERSION
+    rec["poi_id"] = _compute_poi_id(rec)
+    return rec
 
 
 def parse_date(text: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -330,6 +408,7 @@ def normalize_bnp(df_raw: pd.DataFrame) -> pd.DataFrame:
             "tags": tags,
             "scraped_at": row.get("_scraped_at", datetime.utcnow().isoformat()),
         })
+        rec = _finalize_record(rec)
         rec["texto_embedding"] = build_embedding_text(rec)
         records.append(rec)
     return pd.DataFrame(records)
@@ -364,6 +443,7 @@ def normalize_mali(df_raw: pd.DataFrame) -> pd.DataFrame:
             "tags": tags,
             "scraped_at": row.get("_scraped_at", datetime.utcnow().isoformat()),
         })
+        rec = _finalize_record(rec)
         rec["texto_embedding"] = build_embedding_text(rec)
         records.append(rec)
     return pd.DataFrame(records)
@@ -405,6 +485,7 @@ def normalize_joinnus(df_raw: pd.DataFrame) -> pd.DataFrame:
             "tags": tags,
             "scraped_at": row.get("_scraped_at", datetime.utcnow().isoformat()),
         })
+        rec = _finalize_record(rec)
         rec["texto_embedding"] = build_embedding_text(rec)
         records.append(rec)
     return pd.DataFrame(records)
@@ -470,6 +551,7 @@ def normalize_places(df_raw: pd.DataFrame) -> pd.DataFrame:
             "distrito": district,
             "resumen_reviews": reviews_summary,
         })
+        rec = _finalize_record(rec)
         rec["texto_embedding"] = build_embedding_text(rec)
         records.append(rec)
     return pd.DataFrame(records)

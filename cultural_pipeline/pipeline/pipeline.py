@@ -292,6 +292,14 @@ def main(
                 log.error(f"❌ Error exportando poi_catalog: {e}\n{traceback.format_exc()}")
                 log.warning("Continuando sin poi_catalog.json.")
 
+            try:
+                from build_faiss_index import build_index
+                n_idx, _, _ = build_index(OUTPUT_DIR)
+                log.info(f"🔍 FAISS index construido: {n_idx} vectores")
+            except Exception as e:
+                log.error(f"❌ Error construyendo FAISS index: {e}\n{traceback.format_exc()}")
+                log.warning("Continuando sin faiss_index.bin.")
+
             if write_mongo_reco:
                 from mongo_sink import upsert_events_reco, mark_inactive_not_seen_reco, delete_not_seen_reco
 

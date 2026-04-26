@@ -12,6 +12,7 @@ webdriver-manager>=4.0.0
 # --- Data ---
 pandas>=2.2.0
 numpy>=1.26.0
+pyarrow>=15.0.0                # Parquet I/O para capas Silver/Gold del medallón
 
 # --- MongoDB (Atlas sinks) ---
 pymongo>=4.7.0

@@ -202,6 +202,15 @@ def main(
             log.warning("⚠️ No se obtuvieron eventos. Revisa los scrapers.")
             return
 
+        # Geocoding — rellena lat/lng/geo_hash en eventos sin coordenadas
+        if df["lat"].isna().any():
+            try:
+                from geocoder import geocode_events
+                df = geocode_events(df, run_id=RUN_ID)
+            except Exception as e:
+                log.error(f"❌ Error en geocoding: {e}\n{traceback.format_exc()}")
+                log.warning("Continuando sin geocoding.")
+
         # Guardar outputs
         save_outputs(df, RUN_ID)
 

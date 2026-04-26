@@ -42,50 +42,67 @@ from typing import Optional
 
 
 POI_ID_VERSION = "v1"
+JOINNUS_DATE_MIN = "2020-01-01"
+JOINNUS_DATE_MAX = "2027-12-31"
 
 # ---------------------------------------------------------------------------
 # Mapeo de categorías a vocabulario común
 # ---------------------------------------------------------------------------
 CATEGORY_MAP = {
-    # BNP / MALI
-    "bibliocine": "cine",
-    # Google Places
-    "museum": "museo",
-    "art_museum": "museo",
-    "natural_history_museum": "museo",
-    "restaurant": "restaurante",
-    "cafe": "restaurante",
-    "food": "restaurante",
-    "park": "parque",
-    "national_park": "parque",
-    "amusement_park": "parque",
-    "event": "evento",
-    "tourist_attraction": "atracción",
-    "bar": "bar",
-    "night_club": "bar",
-    "art_gallery": "galería",
-    "charla, conversatorio y/o conferencia": "conferencia",
-    "taller": "taller",
-    "exposición": "exposición",
-    "exposicion": "exposición",
-    "concierto": "concierto",
-    "teatro": "teatro",
-    "danza": "danza",
-    "infantil": "familia",
-    "familia": "familia",
-    "recorrido": "tour",
-    "tour": "tour",
-    "gastronomía": "gastronomía",
-    "gastronomia": "gastronomía",
-    # Joinnus
-    "concerts": "concierto",
-    "exhibitions": "exposición",
-    "theater": "teatro",
-    "gastronomy": "gastronomía",
-    "culture": "cultural",
-    "family": "familia",
-    "sports": "deporte",
-    "workshop": "taller",
+    # ── Google Places (español snake_case — valores reales del scraper) ────────
+    "centro_cultural":       "evento_cultural",
+    "galeria_de_arte":       "galeria",
+    "iglesia_histórica":     "iglesia",
+    "iglesia_historica":     "iglesia",
+    "catedral":              "iglesia",
+    "mirador":               "mirador",
+    "sitio_turístico":       "sitio_turistico",
+    "sitio_turistico":       "sitio_turistico",
+    "acuario":               "naturaleza",
+    "laguna":                "naturaleza",
+    "playa":                 "naturaleza",
+    "parque_temático":       "parque",
+    "parque_tematico":       "parque",
+    "parque":                "parque",
+    "museo":                 "museo",
+    "patrimonio_cultural":   "patrimonio",
+    "malecon":               "mirador",
+    "malecón":               "mirador",
+    "zoologico":             "naturaleza",
+    "zoológico":             "naturaleza",
+    "sitio_arqueológico":    "patrimonio",
+    "sitio_arqueologico":    "patrimonio",
+    "plaza_historica":       "patrimonio",
+    "parque_de_diversiones": "parque",
+    # ── BNP / MALI ─────────────────────────────────────────────────────────────
+    "bibliocine":            "cine",
+    "charla, conversatorio y/o conferencia": "evento_cultural",
+    "conversatorio":         "evento_cultural",
+    "taller":                "taller",
+    "exposición":            "galeria",
+    "exposicion":            "galeria",
+    "concierto":             "concierto",
+    "teatro":                "teatro",
+    "danza":                 "danza",
+    "infantil":              "familia",
+    "familia":               "familia",
+    "recorrido":             "tour",
+    "tour":                  "tour",
+    "gastronomía":           "gastronomia",
+    "gastronomia":           "gastronomia",
+    # ── Joinnus ────────────────────────────────────────────────────────────────
+    "concerts":              "concierto",
+    "exhibitions":           "galeria",
+    "theater":               "teatro",
+    "gastronomy":            "gastronomia",
+    "culture":               "evento_cultural",
+    "family":                "familia",
+    "sports":                "deporte",
+    "workshop":              "taller",
+    "comidas & bebidas":     "gastronomia",
+    "stand-up":              "teatro",
+    "arte & cultura":        "evento_cultural",
+    "entertainment":         "evento_cultural",
 }
 
 
@@ -644,6 +661,30 @@ def normalize_all(
             if dropped > 0:
                 combined = pd.concat([combined.loc[~joinnus_mask], joinnus_df[combined.columns]], ignore_index=True)
                 print(f"🔧 Deduplicacion semantica Joinnus: -{dropped} registros")
+
+    # Filtrar eventos Joinnus con fechas anómalas o título+fecha duplicados
+    jn_event_mask = (
+        combined["entity_type"].astype(str).str.lower().eq("event")
+        & combined["fuente"].astype(str).str.lower().eq("joinnus")
+    )
+    if jn_event_mask.any():
+        jn = combined.loc[jn_event_mask].copy()
+        date_str = jn["fecha_inicio"].fillna("").astype(str)
+        has_date = date_str.str.match(r"\d{4}-\d{2}-\d{2}")
+        invalid_date = has_date & ((date_str < JOINNUS_DATE_MIN) | (date_str > JOINNUS_DATE_MAX))
+        if invalid_date.any():
+            print(f"🗑️  Joinnus fechas fuera de rango [{JOINNUS_DATE_MIN}, {JOINNUS_DATE_MAX}]: -{invalid_date.sum()} registros")
+            jn = jn[~invalid_date]
+        titulo_fecha_key = (
+            jn["titulo"].fillna("").astype(str).str.lower().str.strip()
+            + "||"
+            + jn["fecha_inicio"].fillna("").astype(str).str.strip()
+        )
+        dupes = titulo_fecha_key.duplicated(keep="first")
+        if dupes.any():
+            print(f"🗑️  Joinnus título+fecha duplicados: -{dupes.sum()} registros")
+            jn = jn[~dupes]
+        combined = pd.concat([combined.loc[~jn_event_mask], jn], ignore_index=True)
 
     # Ordenar
     combined = combined.sort_values("fecha_inicio", na_position="last")

@@ -28,5 +28,8 @@ faiss-cpu>=1.8.0               # índice FAISS para similarity search
 # --- Scheduler ---
 schedule>=1.2.0
 
+# --- Geo ---
+pygeohash>=1.2.0               # geohash encoding para el campo geo_hash
+
 # --- Utils ---
 python-dotenv>=1.0.0           # manejo de .env local

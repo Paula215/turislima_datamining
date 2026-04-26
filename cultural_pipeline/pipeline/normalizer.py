@@ -25,7 +25,7 @@ Esquema de salida:
     fuente          : str  — "bnp" | "mali" | "joinnus"
     ciudad          : str  — "Lima"
     categoria_normalizada : str — alias canónico de tipo
-    geo_hash        : str | None — hash geográfico estable (si hay lat/lng)
+    geo_hash        : str | None — geohash precisión 7 (≈76m×76m) si hay lat/lng
     fecha_run       : date (ISO 8601) — fecha UTC del run de normalización
     tags            : list[str]
     texto_embedding : str  — concatenación para generar embeddings
@@ -36,6 +36,7 @@ import hashlib
 import re
 import ast
 import pandas as pd
+import pygeohash
 from datetime import datetime, date
 from typing import Optional
 
@@ -48,6 +49,21 @@ POI_ID_VERSION = "v1"
 CATEGORY_MAP = {
     # BNP / MALI
     "bibliocine": "cine",
+    # Google Places
+    "museum": "museo",
+    "art_museum": "museo",
+    "natural_history_museum": "museo",
+    "restaurant": "restaurante",
+    "cafe": "restaurante",
+    "food": "restaurante",
+    "park": "parque",
+    "national_park": "parque",
+    "amusement_park": "parque",
+    "event": "evento",
+    "tourist_attraction": "atracción",
+    "bar": "bar",
+    "night_club": "bar",
+    "art_gallery": "galería",
     "charla, conversatorio y/o conferencia": "conferencia",
     "taller": "taller",
     "exposición": "exposición",
@@ -208,7 +224,7 @@ def _build_geo_hash(lat, lng) -> Optional[str]:
     lng_f = _safe_float(lng)
     if lat_f is None or lng_f is None:
         return None
-    return f"{lat_f:.5f}:{lng_f:.5f}"
+    return pygeohash.encode(lat_f, lng_f, precision=7)
 
 
 def _stable_hash(payload: str) -> str:

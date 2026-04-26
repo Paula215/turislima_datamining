@@ -276,6 +276,13 @@ def main(
 
             embeddings = generate_embeddings(df, run_id=RUN_ID)
 
+            try:
+                from catalog_exporter import export_poi_catalog
+                export_poi_catalog(df, embeddings, OUTPUT_DIR)
+            except Exception as e:
+                log.error(f"❌ Error exportando poi_catalog: {e}\n{traceback.format_exc()}")
+                log.warning("Continuando sin poi_catalog.json.")
+
             if write_mongo_reco:
                 from mongo_sink import upsert_events_reco, mark_inactive_not_seen_reco, delete_not_seen_reco
 

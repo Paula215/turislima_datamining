@@ -41,7 +41,7 @@ jobs:
   scrape-and-embed:
     name: Scraping + Normalización + Embeddings
     runs-on: self-hosted
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     defaults:
       run:
@@ -68,14 +68,39 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Ejecutar pipeline
+      - name: Verificar imports (preflight)
+        # Captures ImportError-style failures fast so they don't
+        # masquerade as "empty log" pipeline crashes.
         run: |
+          mkdir -p logs
+          python - <<'PY' 2>&1 | tee logs/preflight.log
+          import sys
+          from pathlib import Path
+          ROOT = Path(".").resolve()
+          sys.path.insert(0, str(ROOT / "scrapers"))
+          sys.path.insert(0, str(ROOT / "pipeline"))
+          sys.path.insert(0, str(ROOT / "embeddings"))
+          import scraper_bnp, scraper_mali, scraper_joinnus, scraper_google_places  # noqa: F401
+          import normalizer, mongo_sink  # noqa: F401
+          from contracts import silver_arrow_schema  # noqa: F401
+          from storage import get_store  # noqa: F401
+          print("preflight OK")
+          PY
+
+      - name: Ejecutar pipeline
+        # `set -o pipefail` ensures the step fails when python crashes even
+        # though the output is piped through `tee`. Stderr is merged into
+        # ci_run.log so Selenium / import tracebacks survive empty Python logs.
+        run: |
+          set -o pipefail
+          mkdir -p logs
           python pipeline/pipeline.py \
             ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.sources && format('--sources {0}', github.event.inputs.sources) || '' }} \
             ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.skip_embeddings == 'true' && '--skip-embeddings' || '' }} \
             ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.enrich_deepseek == 'true' && '--enrich-deepseek' || '' }} \
             ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.write_mongo_web == 'true' && '--write-mongo-web' || '' }} \
-            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.write_mongo_reco == 'true' && '--write-mongo-reco' || '' }}
+            ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.write_mongo_reco == 'true' && '--write-mongo-reco' || '' }} \
+            2>&1 | tee logs/ci_run.log
         env:
           # Mongo
           MONGO_URI_WEB: ${{ secrets.MONGO_URI_WEB }}
@@ -106,6 +131,7 @@ jobs:
           python scripts/validate_embeddings.py --run-id latest
 
       - name: Upload outputs como artifacts
+        if: always()  # subir incluso en fallo para conservar evidencia
         uses: actions/upload-artifact@v7
         with:
           name: cultural-data-${{ github.run_id }}
@@ -118,7 +144,10 @@ jobs:
             cultural_pipeline/logs/stats_*.json
             cultural_pipeline/logs/output_quality_*.json
             cultural_pipeline/logs/run_*.log
+            cultural_pipeline/logs/ci_run.log
+            cultural_pipeline/logs/preflight.log
           retention-days: 30
+          if-no-files-found: warn
 
       - name: Commit outputs al repo (opcional)
         if: success()
@@ -130,7 +159,25 @@ jobs:
           git diff --cached --quiet || git commit -m "🤖 Weekly scrape $(date -u +'%Y-%m-%d')"
           git push || echo "Nada que pushear"
 
-      - name: Notificar en caso de fallo
+      - name: Diagnóstico en caso de fallo
         if: failure()
         run: |
-          echo "❌ Pipeline falló — revisa los logs en Actions"
+          echo "❌ Pipeline falló. Volcando logs para diagnóstico:"
+          echo ""
+          echo "================ preflight.log ================"
+          cat logs/preflight.log 2>/dev/null || echo "(no existe — falló antes del preflight step)"
+          echo ""
+          echo "================ ci_run.log (últimas 200 líneas) ================"
+          tail -n 200 logs/ci_run.log 2>/dev/null || echo "(no existe — falló antes de 'Ejecutar pipeline')"
+          echo ""
+          echo "================ último run_*.log ================"
+          latest_log=$(ls -t logs/run_*.log 2>/dev/null | head -1)
+          if [ -n "$latest_log" ]; then
+            echo "Archivo: $latest_log ($(wc -c < "$latest_log") bytes)"
+            tail -n 200 "$latest_log"
+          else
+            echo "(no se generó ningún run_*.log)"
+          fi
+          echo ""
+          echo "================ artefactos producidos ================"
+          ls -la output/ embeddings/ 2>/dev/null || true

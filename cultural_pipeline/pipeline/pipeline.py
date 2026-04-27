@@ -34,7 +34,6 @@ import pandas as pd
 ROOT = Path(__file__).parent.parent
 OUTPUT_DIR = ROOT / "output"
 LOGS_DIR = ROOT / "logs"
-EMBEDDINGS_DIR = ROOT / "embeddings"
 OUTPUT_DIR.mkdir(exist_ok=True)
 LOGS_DIR.mkdir(exist_ok=True)
 
@@ -196,7 +195,6 @@ def main(
             store=store,
             opts=opts,
             output_dir=OUTPUT_DIR,
-            embeddings_dir=EMBEDDINGS_DIR,
         )
 
     log.info("✅ Pipeline completado — %s eventos procesados", len(df) if df is not None else 0)

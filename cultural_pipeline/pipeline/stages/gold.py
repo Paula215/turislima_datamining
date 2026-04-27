@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,15 +117,16 @@ def _write_gold_vectors(
         )
     rows = []
     for i, (_, row) in enumerate(df.iterrows()):
+        fecha_inicio_ts = pd.to_datetime(row.get("fecha_inicio"), errors="coerce")
         rows.append(
             {
                 "entity_id": row.get("entity_id"),
                 "titulo": row.get("titulo"),
                 "tipo": row.get("tipo"),
                 "fuente": row.get("fuente"),
-                "fecha_inicio": pd.to_datetime(
-                    row.get("fecha_inicio"), errors="coerce"
-                ).date() if row.get("fecha_inicio") is not None else None,
+                "fecha_inicio": (
+                    None if pd.isna(fecha_inicio_ts) else fecha_inicio_ts.date()
+                ),
                 "texto_embedding": row.get("texto_embedding"),
                 "embedding": embeddings[i].astype("float32").tolist(),
                 "model_name": model_name,
@@ -147,7 +147,6 @@ def run(
     store,
     opts: GoldOptions,
     output_dir: Path,
-    embeddings_dir: Path,
 ) -> None:
     """Pipeline Gold: enrichment + sinks Mongo + embeddings + Gold parquet."""
     log.info("🥇 Gold stage iniciado — run_id=%s", run_id)

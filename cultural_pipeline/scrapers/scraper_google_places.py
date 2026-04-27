@@ -7,12 +7,15 @@ y devuelve un DataFrame crudo para el normalizador.
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from _bronze import ScrapeResult
+
+SCRAPER_VERSION = "google_places/1.0.0"
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_STATIC_PATH = ROOT / "input" / "google_places_payload.json"
@@ -124,18 +127,42 @@ def _load_payload() -> Any:
         return json.load(f)
 
 
-def run() -> pd.DataFrame:
+def run_with_payload() -> ScrapeResult:
+    """Carga el payload estático y devuelve df + raw_records para Bronze."""
     print("🔍 Google Places (estatico) iniciado...")
+    ingest_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload_path = Path(
+        os.getenv("GOOGLE_PLACES_STATIC_PATH", str(DEFAULT_STATIC_PATH))
+    ).expanduser()
+
     try:
         payload = _load_payload()
     except Exception as e:
         print(f"  ❌ Error leyendo payload estatico de Google Places: {e}")
-        return pd.DataFrame()
+        return ScrapeResult(
+            df=pd.DataFrame(),
+            raw_records=[],
+            metadata={
+                "scraper_version": SCRAPER_VERSION,
+                "ingest_ts": ingest_ts,
+                "url": str(payload_path),
+                "notes": f"load_error: {e}",
+            },
+        )
 
     items = _extract_items(payload)
     if not items:
         print("  ⚠️ Sin datos de Google Places (payload ausente o vacio)")
-        return pd.DataFrame()
+        return ScrapeResult(
+            df=pd.DataFrame(),
+            raw_records=[],
+            metadata={
+                "scraper_version": SCRAPER_VERSION,
+                "ingest_ts": ingest_ts,
+                "url": str(payload_path),
+                "notes": "empty_payload",
+            },
+        )
 
     rows = [_to_record(item) for item in items]
     df = pd.DataFrame(rows)
@@ -143,7 +170,20 @@ def run() -> pd.DataFrame:
     df["_scraped_at"] = datetime.utcnow().isoformat()
 
     print(f"✅ Google Places: {len(df)} registros crudos")
-    return df
+    return ScrapeResult(
+        df=df,
+        raw_records=items,
+        metadata={
+            "scraper_version": SCRAPER_VERSION,
+            "ingest_ts": ingest_ts,
+            "url": str(payload_path),
+            "items_found": len(items),
+        },
+    )
+
+
+def run() -> pd.DataFrame:
+    return run_with_payload().df
 
 
 if __name__ == "__main__":

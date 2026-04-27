@@ -17,7 +17,7 @@ from typing import Union
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from ..contracts import (
+from contracts import (  # type: ignore[import-not-found]
     BronzeManifest,
     GoldManifest,
     SilverManifest,
@@ -27,7 +27,7 @@ from ..contracts import (
     manifest_path,
     silver_path,
 )
-from ..contracts.manifests import to_json
+from contracts.manifests import to_json  # type: ignore[import-not-found]
 
 
 class BaseLakeStore(abc.ABC):

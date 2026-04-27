@@ -5,8 +5,11 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
+from _bronze import ScrapeResult
+
+SCRAPER_VERSION = "bnp/1.0.0"
 BASE_URL = "https://eventos.bnp.gob.pe"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -63,24 +66,43 @@ def scrape_event(url: str) -> dict:
     return data
 
 
-def run() -> pd.DataFrame:
+def run_with_payload() -> ScrapeResult:
+    """Ejecuta el scraper y devuelve df + raw_records para Bronze."""
     print("🔍 BNP scraper iniciado...")
+    ingest_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     links = get_event_links()
     print(f"  {len(links)} eventos encontrados")
-    all_data = []
-    for i, link in enumerate(links):
+    all_data: list[dict] = []
+    errors: list[dict] = []
+    for link in links:
         try:
             data = scrape_event(link)
             all_data.append(data)
             time.sleep(1)
         except Exception as e:
             print(f"  ❌ Error en {link}: {e}")
+            errors.append({"url": link, "error": str(e)})
 
     df = pd.json_normalize(all_data)
     df["_source"] = "bnp"
     df["_scraped_at"] = datetime.utcnow().isoformat()
     print(f"✅ BNP: {len(df)} eventos")
-    return df
+
+    return ScrapeResult(
+        df=df,
+        raw_records=all_data,
+        metadata={
+            "scraper_version": SCRAPER_VERSION,
+            "ingest_ts": ingest_ts,
+            "url": BASE_URL,
+            "links_found": len(links),
+            "errors": errors,
+        },
+    )
+
+
+def run() -> pd.DataFrame:
+    return run_with_payload().df
 
 
 if __name__ == "__main__":

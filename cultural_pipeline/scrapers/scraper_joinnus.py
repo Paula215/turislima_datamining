@@ -18,10 +18,14 @@ import os
 import re
 import time
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import quote, urljoin
+
+from _bronze import ScrapeResult
+
+SCRAPER_VERSION = "joinnus/1.0.0"
 
 import pandas as pd
 import requests
@@ -1027,23 +1031,34 @@ def _resolve_max_links(max_links_override: Optional[int]) -> Optional[int]:
     return value
 
 
-def run(
+def run_with_payload(
     max_pages: int = 0,
     events_per_page: int = 12,
     headless: bool = True,
     max_links: Optional[int] = None,
-) -> pd.DataFrame:
+) -> ScrapeResult:
     """
-    Interfaz estandar del pipeline.
+    Interfaz estandar del pipeline. Devuelve df + raw_records para Bronze.
 
     Args:
         max_pages: limite opcional por categoria. Si es 0, usa paginas detectadas por API.
         events_per_page: size del payload API.
         headless: modo headless de Selenium para extraccion HTML.
     """
+    ingest_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    base_meta: Dict[str, Any] = {
+        "scraper_version": SCRAPER_VERSION,
+        "ingest_ts": ingest_ts,
+        "url": "https://www.joinnus.com",
+    }
+
     categories = _resolve_categories()
     if not categories:
-        return pd.DataFrame()
+        return ScrapeResult(
+            df=pd.DataFrame(),
+            raw_records=[],
+            metadata={**base_meta, "notes": "no_categories_resolved"},
+        )
 
     page_size = max(1, int(events_per_page))
     pages_hard_cap = max(1, int(os.getenv("JOINNUS_MAX_PAGES_HARD", "30")))
@@ -1133,7 +1148,12 @@ def run(
 
         if not all_links:
             logger.warning("No se encontraron links de eventos en HTML de Joinnus")
-            return pd.DataFrame()
+            return ScrapeResult(
+                df=pd.DataFrame(),
+                raw_records=[],
+                metadata={**base_meta, "notes": "no_links_found",
+                          "categories": categories},
+            )
 
         rows: List[Dict[str, Any]] = []
         for index, event_url in enumerate(sorted(all_links), start=1):
@@ -1148,22 +1168,45 @@ def run(
             time.sleep(0.15)
 
         df = pd.DataFrame(rows)
-        if df.empty:
-            return df
-
-        df["_source"] = "joinnus"
-        df["_scraped_at"] = datetime.utcnow().isoformat()
-        return df
+        if not df.empty:
+            df["_source"] = "joinnus"
+            df["_scraped_at"] = datetime.utcnow().isoformat()
+        return ScrapeResult(
+            df=df,
+            raw_records=rows,
+            metadata={**base_meta,
+                      "categories": categories,
+                      "links_found": len(all_links)},
+        )
 
     except Exception as exc:
         logger.error("Joinnus scraper fallo: %s", exc)
-        return pd.DataFrame()
+        return ScrapeResult(
+            df=pd.DataFrame(),
+            raw_records=[],
+            metadata={**base_meta, "notes": f"exception: {exc}"},
+        )
     finally:
         if driver is not None:
             try:
                 driver.quit()
             except Exception:
                 pass
+
+
+def run(
+    max_pages: int = 0,
+    events_per_page: int = 12,
+    headless: bool = True,
+    max_links: Optional[int] = None,
+) -> pd.DataFrame:
+    """Wrapper de compatibilidad: devuelve solo el DataFrame."""
+    return run_with_payload(
+        max_pages=max_pages,
+        events_per_page=events_per_page,
+        headless=headless,
+        max_links=max_links,
+    ).df
 
 
 def main() -> None:

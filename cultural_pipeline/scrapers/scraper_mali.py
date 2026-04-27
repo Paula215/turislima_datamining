@@ -4,8 +4,12 @@ Usa Selenium por el JS rendering
 """
 import time
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from bs4 import BeautifulSoup
+
+from _bronze import ScrapeResult
+
+SCRAPER_VERSION = "mali/1.0.0"
 
 try:
     from selenium import webdriver
@@ -99,36 +103,66 @@ def scrape_event(driver, url: str) -> dict:
     return data
 
 
-def run() -> pd.DataFrame:
+def run_with_payload() -> ScrapeResult:
+    """Ejecuta el scraper MALI y devuelve df + raw_records para Bronze."""
+    ingest_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     if not SELENIUM_AVAILABLE:
         print("⚠️ Selenium no disponible — saltando MALI")
-        return pd.DataFrame()
+        return ScrapeResult(
+            df=pd.DataFrame(),
+            raw_records=[],
+            metadata={
+                "scraper_version": SCRAPER_VERSION,
+                "ingest_ts": ingest_ts,
+                "notes": "selenium_unavailable",
+            },
+        )
 
     print("🔍 MALI scraper iniciado...")
     driver = init_driver()
+    errors: list[dict] = []
+    all_data: list[dict] = []
+    events_found = 0
     try:
         driver.get(BASE_URL)
         time.sleep(5)
         scroll_page(driver)
         events = get_events(driver)
-        print(f"  {len(events)} actividades encontradas")
+        events_found = len(events)
+        print(f"  {events_found} actividades encontradas")
 
-        all_data = []
-        for i, e in enumerate(events):
+        for e in events:
             try:
                 data = scrape_event(driver, e["url"])
                 data["fecha_lista"] = e["fecha_raw"]
                 all_data.append(data)
             except Exception as err:
                 print(f"  ❌ Error: {err}")
+                errors.append({"url": e.get("url"), "error": str(err)})
 
         df = pd.json_normalize(all_data)
         df["_source"] = "mali"
         df["_scraped_at"] = datetime.utcnow().isoformat()
         print(f"✅ MALI: {len(df)} eventos")
-        return df
     finally:
         driver.quit()
+
+    return ScrapeResult(
+        df=df,
+        raw_records=all_data,
+        metadata={
+            "scraper_version": SCRAPER_VERSION,
+            "ingest_ts": ingest_ts,
+            "url": BASE_URL,
+            "events_found": events_found,
+            "errors": errors,
+        },
+    )
+
+
+def run() -> pd.DataFrame:
+    return run_with_payload().df
 
 
 if __name__ == "__main__":

@@ -221,6 +221,9 @@ cultural_pipeline/output/eventos_estandar.json
 cultural_pipeline/output/raw/
 cultural_pipeline/output/snapshots/
 
+# Lake data directory (local medallion backend)
+cultural_pipeline/data/
+
 # Embedding artifacts (generated)
 cultural_pipeline/embeddings/vectors_*.npy
 cultural_pipeline/embeddings/metadata_*.json

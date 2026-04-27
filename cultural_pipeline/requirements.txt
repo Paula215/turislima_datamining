@@ -32,5 +32,9 @@ schedule>=1.2.0
 # --- Geo ---
 pygeohash>=1.2.0               # geohash encoding para el campo geo_hash
 
+# --- Azure (uncomment for cloud deployment) ---
+# azure-storage-file-datalake>=12.14.0  # ADLS Gen2 backend for lake storage
+# azure-identity>=1.15.0                # DefaultAzureCredential (Managed Identity + az login)
+
 # --- Utils ---
 python-dotenv>=1.0.0           # manejo de .env local

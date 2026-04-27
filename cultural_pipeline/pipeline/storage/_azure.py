@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
 
 from ._protocol import BaseLakeStore
+
+
+_RUN_ID_PATTERN = re.compile(r"run_id=(?P<run_id>[0-9_]+)")
 
 
 class AzureStore(BaseLakeStore):
@@ -34,3 +38,14 @@ class AzureStore(BaseLakeStore):
             return True
         except ResourceNotFoundError:
             return False
+
+    def list_run_ids(self, layer: str, dataset: str | None = None) -> list[str]:
+        if layer not in ("bronze", "silver", "gold"):
+            raise ValueError(f"Unknown layer: {layer!r}")
+        prefix = layer if not dataset else f"{layer}/{dataset}"
+        run_ids: set[str] = set()
+        for path in self._fs.get_paths(path=prefix, recursive=True):
+            m = _RUN_ID_PATTERN.search(path.name)
+            if m:
+                run_ids.add(m.group("run_id"))
+        return sorted(run_ids)

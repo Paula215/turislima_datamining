@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from ._protocol import BaseLakeStore
+
+
+_RUN_ID_DIR = re.compile(r"^run_id=(?P<run_id>[0-9_]+)$")
 
 
 class LocalStore(BaseLakeStore):
@@ -32,3 +36,20 @@ class LocalStore(BaseLakeStore):
 
     def exists(self, path: str) -> bool:
         return (self._root / path).exists()
+
+    def list_run_ids(self, layer: str, dataset: str | None = None) -> list[str]:
+        if layer not in ("bronze", "silver", "gold"):
+            raise ValueError(f"Unknown layer: {layer!r}")
+        base = self._root / layer
+        if dataset:
+            base = base / dataset
+        if not base.exists():
+            return []
+        run_ids: set[str] = set()
+        for child in base.rglob("run_id=*"):
+            if not child.is_dir():
+                continue
+            m = _RUN_ID_DIR.match(child.name)
+            if m:
+                run_ids.add(m.group("run_id"))
+        return sorted(run_ids)

@@ -14,7 +14,7 @@ class AzureStore(BaseLakeStore):
         from azure.identity import DefaultAzureCredential
         from azure.storage.filedatalake import DataLakeServiceClient
 
-        account = os.environ["ADLS_ACCOUNT_NAME"]
+        account = os.environ["AZURE_STORAGE_ACCOUNT_NAME"]
         filesystem = os.getenv("ADLS_FILESYSTEM", "lake")
         url = f"https://{account}.dfs.core.windows.net"
         service = DataLakeServiceClient(url, credential=DefaultAzureCredential())

@@ -1,0 +1,60 @@
+# Build context exclusions for the Container Apps Job image.
+# Mantén estas reglas alineadas con .gitignore (artefactos generados +
+# secrets locales) para no inflar el contexto enviado al daemon.
+
+# Python bytecode / caches
+__pycache__/
+*.py[codz]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs locales
+.venv/
+venv/
+env/
+
+# Secretos / config local
+.env
+.env.azure
+
+# Lake medallón generado localmente
+data/
+
+# Outputs runtime (se regeneran en cada job)
+logs/
+output/eventos_estandar.csv
+output/eventos_estandar.json
+output/raw/
+output/snapshots/
+
+# Embedding artifacts generados
+embeddings/vectors_*.npy
+embeddings/metadata_*.json
+embeddings/contract_*.json
+embeddings/quality_*.json
+embeddings/faiss_*.index
+embeddings/*_latest.*
+
+# Static input privado (se monta vía secret/volume si se necesita)
+input/google_places_payload.json
+
+# Beads / Dolt
+.dolt/
+*.db
+.beads-credential-key
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docs y plans (no se usan en runtime)
+README.md
+SECRETS.md
+*.md

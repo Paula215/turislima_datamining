@@ -141,6 +141,18 @@ def _resolve_model_name() -> str:
     return os.getenv("EMBEDDING_MODEL_NAME", "paraphrase-multilingual-MiniLM-L12-v2")
 
 
+def _resolve_sink_module():
+    """Selecciona mongo_sink (Atlas) o cosmos_sink (Cosmos vCore) según
+    `RECO_BACKEND`. Default `atlas` para no romper el flujo legacy.
+    """
+    backend = (os.getenv("RECO_BACKEND") or "atlas").strip().lower()
+    if backend == "cosmos":
+        import cosmos_sink as sink_module  # type: ignore[import-not-found]
+        return sink_module, "cosmos"
+    import mongo_sink as sink_module  # type: ignore[import-not-found]
+    return sink_module, "atlas"
+
+
 def run(
     run_id: str,
     df: pd.DataFrame,
@@ -155,16 +167,17 @@ def run(
         log.warning("Gold: df vacío, nada que procesar")
         return
 
-    # Mongo web (legacy sink — corre con df pre-embeddings, igual que el flujo viejo)
+    sink_module, sink_backend = _resolve_sink_module()
+    log.info("Reco/web sink backend: %s", sink_backend)
+
+    # Sink web (catálogo) — corre con df pre-embeddings
     if opts.write_mongo_web:
         try:
-            from mongo_sink import (  # type: ignore[import-not-found]
-                delete_not_seen_web,
-                mark_inactive_not_seen_web,
-                upsert_events_web,
-            )
+            upsert_events_web = sink_module.upsert_events_web
+            mark_inactive_not_seen_web = sink_module.mark_inactive_not_seen_web
+            delete_not_seen_web = sink_module.delete_not_seen_web
 
-            log.info("🗄️ Publicando eventos a MongoDB (web)...")
+            log.info("🗄️ Publicando eventos a %s (web)...", sink_backend)
             stats = upsert_events_web(df, run_id=run_id)
             log.info("  ✓ Web upsert: %s", stats)
             if opts.is_full_run:
@@ -185,7 +198,7 @@ def run(
             else:
                 log.info("  ℹ️ Limpieza web omitida (run parcial)")
         except Exception as e:
-            log.error("❌ Error publicando a MongoDB (web): %s\n%s", e, traceback.format_exc())
+            log.error("❌ Error publicando a %s (web): %s\n%s", sink_backend, e, traceback.format_exc())
 
     # Enrichment opcional ANTES de generar embeddings
     if opts.enrich_deepseek:
@@ -215,16 +228,14 @@ def run(
             except Exception as e:
                 log.error("❌ Error construyendo FAISS index: %s\n%s", e, traceback.format_exc())
 
-            # Mongo reco (legacy)
+            # Sink reco (vectores) — usa el mismo backend resuelto antes
             if opts.write_mongo_reco:
                 try:
-                    from mongo_sink import (  # type: ignore[import-not-found]
-                        delete_not_seen_reco,
-                        mark_inactive_not_seen_reco,
-                        upsert_events_reco,
-                    )
+                    upsert_events_reco = sink_module.upsert_events_reco
+                    mark_inactive_not_seen_reco = sink_module.mark_inactive_not_seen_reco
+                    delete_not_seen_reco = sink_module.delete_not_seen_reco
 
-                    log.info("🗄️ Publicando embeddings a MongoDB (reco)...")
+                    log.info("🗄️ Publicando embeddings a %s (reco)...", sink_backend)
                     stats = upsert_events_reco(df, embeddings=embeddings, run_id=run_id)
                     log.info("  ✓ Reco upsert: %s", stats)
                     if opts.is_full_run:
@@ -244,7 +255,7 @@ def run(
                     else:
                         log.info("  ℹ️ Limpieza reco omitida (run parcial)")
                 except Exception as e:
-                    log.error("❌ Error publicando a MongoDB (reco): %s\n%s", e, traceback.format_exc())
+                    log.error("❌ Error publicando a %s (reco): %s\n%s", sink_backend, e, traceback.format_exc())
         except Exception as e:
             log.error("❌ Error al generar embeddings: %s\n%s", e, traceback.format_exc())
             log.warning("Pipeline Gold completado SIN embeddings.")

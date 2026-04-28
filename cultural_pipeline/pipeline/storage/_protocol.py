@@ -42,6 +42,16 @@ class BaseLakeStore(abc.ABC):
     @abc.abstractmethod
     def exists(self, path: str) -> bool: ...
 
+    def list_run_ids(self, layer: str, dataset: str | None = None) -> list[str]:
+        """Lista run_ids en una capa, ordenados ascendentemente.
+
+        Implementación opcional — los backends que no soporten listar
+        eficientemente pueden lanzar `NotImplementedError`.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} no implementa list_run_ids"
+        )
+
     # ------------------------------------------------------------------
     # Bronze
     # ------------------------------------------------------------------

@@ -73,7 +73,13 @@ def _resolve_cosmos_uri() -> str:
     secret_name = os.getenv("COSMOS_URI_SECRET_NAME") or "cosmos-uri"
     client = SecretClient(vault_url=vault_uri, credential=DefaultAzureCredential())
     secret = client.get_secret(secret_name)
-    return secret.value or ""
+    secret_value = (secret.value or "").strip()
+    if not secret_value:
+        raise RuntimeError(
+            f"Cosmos URI no resuelto: el secret '{secret_name}' en Key Vault '{vault_uri}' "
+            "está vacío o no tiene valor"
+        )
+    return secret_value
 
 
 def _get_catalog_env_config() -> tuple[str, str, str]:

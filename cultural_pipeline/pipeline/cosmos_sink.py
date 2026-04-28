@@ -67,8 +67,15 @@ def _resolve_cosmos_uri() -> str:
             "Cosmos URI no resuelto: define COSMOS_URI o KEY_VAULT_URI/KEY_VAULT_NAME"
         )
 
-    from azure.identity import DefaultAzureCredential  # type: ignore[import-not-found]
-    from azure.keyvault.secrets import SecretClient  # type: ignore[import-not-found]
+    try:
+        from azure.identity import DefaultAzureCredential  # type: ignore[import-not-found]
+        from azure.keyvault.secrets import SecretClient  # type: ignore[import-not-found]
+    except ImportError as exc:
+        raise RuntimeError(
+            "El fallback de Cosmos URI a Azure Key Vault requiere dependencias "
+            "opcionales no instaladas. Instala `azure-identity` y "
+            "`azure-keyvault-secrets`, o define COSMOS_URI explícitamente."
+        ) from exc
 
     secret_name = os.getenv("COSMOS_URI_SECRET_NAME") or "cosmos-uri"
     client = SecretClient(vault_url=vault_uri, credential=DefaultAzureCredential())

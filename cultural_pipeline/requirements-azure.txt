@@ -1,0 +1,8 @@
+# Azure runtime dependencies for the Container Apps Job image.
+# Local dev installs from requirements.txt only; the Dockerfile installs
+# both files so the cloud image carries Azure SDKs without polluting
+# local environments that don't talk to Azure.
+
+azure-identity>=1.15.0
+azure-storage-file-datalake>=12.14.0
+azure-keyvault-secrets>=4.8.0

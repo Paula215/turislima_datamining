@@ -1,0 +1,111 @@
+name: 🐳 Build & Push Container Apps Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cultural_pipeline/Dockerfile"
+      - "cultural_pipeline/.dockerignore"
+      - "cultural_pipeline/requirements.txt"
+      - "cultural_pipeline/requirements-azure.txt"
+      - "cultural_pipeline/pipeline/**"
+      - "cultural_pipeline/scrapers/**"
+      - "cultural_pipeline/embeddings/**"
+      - "cultural_pipeline/scripts/**"
+      - "cultural_pipeline/input/**"
+      - ".github/workflows/build_and_push.yml"
+
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de imagen adicional (además de sha + latest)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write   # requerido para OIDC federated login a Azure
+
+concurrency:
+  group: build-and-push-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: cultural-pipeline
+
+jobs:
+  build-and-push:
+    name: Build + push image to ACR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v6
+
+      # --- Login a Azure vía OIDC ---
+      # Pre-requisito: federar este repo con un app registration en Azure.
+      # Setear secrets a nivel de repo:
+      #   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, ACR_NAME
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name "${{ secrets.ACR_NAME }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          REGISTRY="${{ secrets.ACR_NAME }}.azurecr.io"
+          SHA_TAG="${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA::7}"
+          LATEST_TAG="${REGISTRY}/${IMAGE_NAME}:latest"
+          TAGS="${SHA_TAG},${LATEST_TAG}"
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            EXTRA="${REGISTRY}/${IMAGE_NAME}:${{ github.event.inputs.tag }}"
+            TAGS="${TAGS},${EXTRA}"
+          fi
+          echo "registry=${REGISTRY}"   >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${SHA_TAG}"     >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}"           >> "$GITHUB_OUTPUT"
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: cultural_pipeline
+          file: cultural_pipeline/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          # Layer cache para acortar builds incrementales
+          cache-from: type=registry,ref=${{ steps.tags.outputs.registry }}/${{ env.IMAGE_NAME }}:cache
+          cache-to:   type=registry,ref=${{ steps.tags.outputs.registry }}/${{ env.IMAGE_NAME }}:cache,mode=max
+          provenance: false
+
+      - name: Update Container Apps Job to new image
+        # Solo en push a main; workflow_dispatch usa la imagen ya etiquetada.
+        if: github.event_name == 'push'
+        run: |
+          if [ -n "${{ secrets.CONTAINER_APPS_JOB_NAME }}" ] && [ -n "${{ secrets.CONTAINER_APPS_RG }}" ]; then
+            az containerapp job update \
+              -n "${{ secrets.CONTAINER_APPS_JOB_NAME }}" \
+              -g "${{ secrets.CONTAINER_APPS_RG }}" \
+              --image "${{ steps.tags.outputs.sha_tag }}"
+          else
+            echo "::notice::CONTAINER_APPS_JOB_NAME / CONTAINER_APPS_RG no definidos; saltando update del job"
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "## Build & push"
+            echo ""
+            echo "- Imagen SHA:   \`${{ steps.tags.outputs.sha_tag }}\`"
+            echo "- Imagen latest:\`${{ steps.tags.outputs.latest_tag }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

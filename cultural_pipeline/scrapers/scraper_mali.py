@@ -24,15 +24,20 @@ BASE_URL = "https://mali.pe/es/activity/"
 
 
 def init_driver():
+    import os
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    driver = webdriver.Chrome(
+    # In containerized environments we ship `chromium-driver` from apt and
+    # let Selenium Manager (>=4.6) auto-discover it, avoiding the runtime
+    # download from chromedriver.storage.googleapis.com.
+    if os.getenv("USE_SYSTEM_CHROMEDRIVER", "").strip().lower() in ("1", "true", "yes"):
+        return webdriver.Chrome(options=options)
+    return webdriver.Chrome(
         service=Service(ChromeDriverManager().install()),
-        options=options
+        options=options,
     )
-    return driver
 
 
 def scroll_page(driver):

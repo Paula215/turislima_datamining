@@ -85,7 +85,7 @@ sin que la app lo lea aún.
      --top-k 10 --emit-json
    ```
 5. **Criterio de salida**: Jaccard@10 ≥ 0.7 promedio sobre las queries
-   representativas. Si menor, investigar (puede ser drift entre el modelo
+   representativas. Si es menor, investigar (puede ser drift entre el modelo
    de embeddings, el índice HNSW recién creado vs FAISS exacto, o
    diferencias en la cobertura de eventos).
 

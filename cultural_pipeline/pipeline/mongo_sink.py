@@ -111,15 +111,15 @@ def df_to_event_docs(df: pd.DataFrame) -> list[dict]:
 
 def _get_web_env_config() -> tuple[str, str, str]:
     uri = os.getenv("MONGO_URI_WEB") or ""
-    db = os.getenv("MONGO_DB_WEB") or "turislima_web"
-    coll = os.getenv("MONGO_COLL_WEB") or "eventos"
+    db = os.getenv("MONGO_DB_WEB") or "turislima"
+    coll = os.getenv("MONGO_COLL_WEB") or "entities"
     return uri, db, coll
 
 
 def _get_reco_env_config() -> tuple[str, str, str]:
     uri = os.getenv("MONGO_URI_RECO") or ""
-    db = os.getenv("MONGO_DB_RECO") or "turislima_reco"
-    coll = os.getenv("MONGO_COLL_RECO") or "eventos_vectors"
+    db = os.getenv("MONGO_DB_RECO") or "turislima"
+    coll = os.getenv("MONGO_COLL_RECO") or "entities_vectors"
     return uri, db, coll
 
 

@@ -134,7 +134,9 @@ def compare(
         # FAISS → poi_ids → entity_ids via poi_map
         faiss_pois = _faiss_top_k(model, q, faiss_index, id_map, top_k)
         faiss_entity_ids = {
-            poi_map[p]["entity_id"] for p in faiss_pois if p in poi_map
+            poi_map[p].get("entity_id")
+            for p in faiss_pois
+            if p in poi_map and poi_map[p].get("entity_id")
         }
         faiss_titulos = [
             poi_map[p].get("titulo") for p in faiss_pois if p in poi_map

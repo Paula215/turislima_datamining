@@ -71,9 +71,17 @@ python pipeline/pipeline.py --skip-embeddings      # Skip vector generation (fas
 python pipeline/pipeline.py --write-mongo-web      # Publish to MongoDB web catalog
 python pipeline/pipeline.py --write-mongo-reco     # Publish vectors to MongoDB reco
 
-# Validate outputs after a run
+# Validate each medallion layer
+python scripts/validate_bronze.py --run-id latest
+python scripts/validate_silver.py --run-id latest
+python scripts/validate_gold.py   --run-id latest
+
+# Legacy output validation
 python scripts/validar_output.py --expected-sources bnp mali joinnus places --emit-json
 python scripts/validate_embeddings.py --run-id latest
+
+# Compare Atlas vs Cosmos recommendations (parity check before cutover)
+python scripts/compare_reco_backends.py --user-id <uid> --top-k 20
 
 # Semantic search smoke test
 python -c "
@@ -89,16 +97,27 @@ There are no unit tests or linters configured. Quality is enforced through the v
 
 **Purpose**: Weekly data pipeline that extracts cultural events from Lima, Peru, normalizes them into a unified schema, generates semantic embeddings, and publishes to MongoDB for a tourism recommendation app.
 
-### Data flow
+### Data flow — Medallion architecture
 
+The pipeline has two modes:
+
+**Legacy path** (still default):
 ```
-Scrapers (BNP, MALI, Joinnus, Google Places)
-    → normalizer.py  (raw DataFrames → EventoEstandar)
-    → output/eventos_estandar.{csv,json}  +  output/snapshots/
-    → embedder.py  (sentence-transformers, 384-dim)
-    → embeddings/vectors_latest.npy  +  metadata_latest.json  +  faiss_latest.index
-    → mongo_sink.py  (upsert to two MongoDB Atlas clusters)
+Scrapers → normalizer.py → output/eventos_estandar.{csv,json}
+         → embedder.py   → embeddings/vectors_latest.npy + faiss_latest.index
+         → mongo_sink.py (or cosmos_sink.py) → turislima.{entities, entities_vectors}
 ```
+
+**Medallion path** (via `pipeline/stages/`):
+```
+Scrapers
+  → stages/bronze.py  → lake://bronze/source=<name>/run_id=<id>/events.jsonl
+  → stages/silver.py  → lake://silver/run_id=<id>/eventos_estandar.parquet  (canonical)
+  → stages/gold.py    → lake://gold/run_id=<id>/{catalog.parquet, vectors.parquet}
+                      → sinks: mongo_sink / cosmos_sink / FAISS (legacy)
+```
+
+The lake backend is swappable: `LAKE_BACKEND=local` writes under `cultural_pipeline/data/`; `LAKE_BACKEND=azure` writes to ADLS Gen2.
 
 ### Key modules
 
@@ -106,15 +125,30 @@ Scrapers (BNP, MALI, Joinnus, Google Places)
 |------|------|
 | `pipeline/pipeline.py` | Main orchestrator; CLI entry point; runs scrapers in parallel (max_workers=2) |
 | `pipeline/normalizer.py` | Transforms raw scraper DataFrames into the unified `EventoEstandar` schema |
-| `pipeline/mongo_sink.py` | Upserts to MongoDB; manages stale-document cleanup with a safety window |
+| `pipeline/mongo_sink.py` | Upserts to MongoDB Atlas; manages stale-document cleanup with a safety window |
+| `pipeline/cosmos_sink.py` | Mirror of `mongo_sink.py` for Cosmos DB vCore; selected via `RECO_BACKEND=cosmos` |
+| `pipeline/geocoder.py` | Enriches lat/lng for events missing coordinates (Google Geocoding API) |
+| `pipeline/catalog_exporter.py` | Exports the canonical catalog to CSV/JSON/Parquet for downstream consumers |
+| `pipeline/build_faiss_index.py` | Opt-in utility to build a FAISS index file from stored vectors |
+| `pipeline/stages/bronze.py` | Medallion Bronze stage: runs scrapers, persists raw JSONL to lake |
+| `pipeline/stages/silver.py` | Medallion Silver stage: normalizes raw data → typed Parquet (`EventoEstandar`) |
+| `pipeline/stages/gold.py` | Medallion Gold stage: embeddings, catalog export, sink to Mongo/Cosmos |
+| `pipeline/storage/_protocol.py` | `BaseLakeStore` ABC + `get_store()` factory — defines medallion-aware `write_bronze/silver/gold` methods |
+| `pipeline/storage/_local.py` | Local filesystem lake backend |
+| `pipeline/storage/_azure.py` | ADLS Gen2 lake backend (Azure) |
+| `pipeline/contracts/` | Pydantic schemas for each layer: `silver_schema.py`, `gold_schema.py`; path layout in `layout.py`; run manifests in `manifests.py` |
 | `scrapers/scraper_bnp.py` | HTML scraper for Biblioteca Nacional del Perú |
 | `scrapers/scraper_mali.py` | Selenium-based scraper for Museo de Arte de Lima |
 | `scrapers/scraper_joinnus.py` | REST API scraper for Joinnus ticketing (~40 KB, most complex) |
 | `scrapers/scraper_google_places.py` | Loads static `input/google_places_payload.json` (deterministic, no live API) |
 | `embeddings/embedder.py` | Generates vectors with `paraphrase-multilingual-MiniLM-L12-v2`; OpenAI fallback |
 | `embeddings/enricher.py` | Optional DeepSeek enrichment of event descriptions |
-| `scripts/validar_output.py` | Schema validation: required columns, duplicates, nulls, source counts |
-| `scripts/validate_embeddings.py` | Embedding quality: shape, L2 norms, self_recall@k, near-duplicates, drift |
+| `scripts/validate_bronze.py` | Validates Bronze layer: JSONL structure, required fields, source completeness |
+| `scripts/validate_silver.py` | Validates Silver layer: Parquet schema, nulls, duplicates, EventoEstandar contract |
+| `scripts/validate_gold.py` | Validates Gold layer: embedding shape/norms, catalog parity, vector count |
+| `scripts/validate_embeddings.py` | Embedding quality: L2 norms, self_recall@k, near-duplicates, drift vs prior run |
+| `scripts/validar_output.py` | Legacy schema validation on CSV/JSON output |
+| `scripts/compare_reco_backends.py` | Top-K parity check between Atlas and Cosmos vCore recommendations |
 
 ### Scheduling
 
@@ -123,10 +157,15 @@ The pipeline runs weekly (Sunday 07:00 UTC = 02:00 AM Lima). Three options:
 - **Crontab**: `python scheduler/scheduler.py --install-cron`
 - **Daemon**: `python scheduler/scheduler.py`
 
-### MongoDB dual-cluster strategy
+### MongoDB / Cosmos routing
 
-- **Web DB** (`MONGO_URI_WEB`): human-readable standardized catalog consumed by the web app
-- **Reco DB** (`MONGO_URI_RECO`): vectors + minimal metadata for semantic search
+`RECO_BACKEND` env var controls which sink receives the Gold layer:
+- `atlas` (default) → `mongo_sink.py` → `turislima.entities` and `turislima.entities_vectors`
+- `cosmos` → `cosmos_sink.py` → Cosmos DB vCore (uses `COSMOS_URI` or Azure Key Vault secret `cosmos-uri`)
+
+Both sinks expose the same public API (`upsert_events_web`, `upsert_events_reco`, `mark_inactive_*`, `delete_not_seen_*`) so `gold.py` doesn't need to know which is active.
+
+The backend (`frontend_turislima/backend`) reads from the unified Atlas cluster (`turislima` DB). Both pipeline and backend must point to the **same** cluster — the pipeline is the only writer to `entities` and `entities_vectors`.
 
 Stale documents are only cleaned up on full runs (all sources). After `MONGO_DELETE_AFTER_MISSED_FULL_RUNS` (default 2) consecutive full-run absences, a document is deleted if `MONGO_HARD_DELETE_STALE=true`, or marked inactive otherwise.
 
@@ -161,17 +200,37 @@ The stale-document cleanup is intentionally skipped when `--sources` is used (pa
 
 ### Run ID format
 
-`YYYYMMdd_HHmmss` UTC — used as suffix for all snapshot files, logs, and embedding artifacts.
+`YYYYMMdd_HHmmss` UTC — used as suffix for all snapshot files, lake paths, logs, and embedding artifacts.
 
 ### Environment config
 
-Copy `cultural_pipeline/.env.example` to `cultural_pipeline/.env`. Required variables:
+Copy `cultural_pipeline/.env.example` to `cultural_pipeline/.env`. Key variables:
 
 ```
-MONGO_URI_WEB, MONGO_URI_RECO, MONGO_DB_WEB, MONGO_DB_RECO
+# Unified MongoDB cluster (pipeline + backend share the same cluster)
+MONGO_URI_WEB=           # same URI as MONGO_URI_RECO
+MONGO_DB_WEB=turislima
+MONGO_COLL_WEB=entities
+MONGO_URI_RECO=          # same URI as MONGO_URI_WEB
+MONGO_DB_RECO=turislima
+MONGO_COLL_RECO=entities_vectors
+
+# Reco backend selector (atlas | cosmos)
+RECO_BACKEND=atlas
+
+# Lake storage (local | azure)
+LAKE_BACKEND=local
+# LAKE_LOCAL_ROOT=       # defaults to cultural_pipeline/data/
+# AZURE_STORAGE_ACCOUNT_NAME=   # required when LAKE_BACKEND=azure
+
 EMBEDDING_MODEL_NAME=paraphrase-multilingual-MiniLM-L12-v2
 EMBEDDING_DIM=384
 MONGO_HARD_DELETE_STALE=true
 MONGO_DELETE_AFTER_MISSED_FULL_RUNS=2
 GOOGLE_PLACES_STATIC_PATH=cultural_pipeline/input/google_places_payload.json
+
+# Optional
+GOOGLE_GEOCODING_API_KEY=   # enriches lat/lng for events without coordinates
+DEEPSEEK_API_KEY=           # optional description enrichment
+COSMOS_URI=                 # required only when RECO_BACKEND=cosmos
 ```
